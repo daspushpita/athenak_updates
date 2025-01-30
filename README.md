@@ -32,6 +32,31 @@ Other pages give instructions for running the code.
 
 Since AthenaK is very similar to Athena++, the [Athena++ documention](https://github.com/PrincetonUniversity/athena/wiki) may also be helpful.
 
+## Compiling and Running on Rusty
+
+1. Load the following modules
+
+module load modules/2.0-20220630
+module load cuda/11.4.4
+module load openmpi/cuda-4.0.7
+
+export PATH=/usr/local/cuda-11.4.4/bin:$PATH
+export LD_LIBRARY_PATH=/usr/local/cuda-11.4.4/lib64:$LD_LIBRARY_PATH
+
+2. Navigate to the athenak folder and run the following for v100
+
+cmake3 -D Kokkos_ENABLE_CUDA=On -D Kokkos_ARCH_VOLTA70=On -D CMAKE_CXX_COMPILER=~/Codes/athenak/kokkos/bin/nvcc_wrapper -B {Build_Folder}
+
+3. Navigate to the Build_Folder and run the following make command
+
+make -j 64
+
+4. run the following command for a particular problem
+
+srun ./athena -i ~/Codes/athenak/inputs/mhd/orszag_tang.athinput -d ../orsag_tang/
+
+
+
 ## Code papers
 
 For more details on the features and algorithms implemented in AthenaK, see the code papers:
