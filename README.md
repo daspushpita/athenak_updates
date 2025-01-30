@@ -36,14 +36,14 @@ Since AthenaK is very similar to Athena++, the [Athena++ documention](https://gi
 
 1. Load the following modules
 
-```module purge
-module load modules/2.3-20240529
-module load openblas/single-0.3.26
-module load gcc openmpi
-module load cuda/12.3.2
+`module purge`
+`module load modules/2.3-20240529`
+`module load openblas/single-0.3.26`
+`module load gcc openmpi`
+`module load cuda/12.3.2`
 
-export PATH=/usr/local/cuda-11.4.4/bin:$PATH
-export LD_LIBRARY_PATH=/usr/local/cuda-11.4.4/lib64:$LD_LIBRARY_PATH
+`export PATH=/usr/local/cuda-11.4.4/bin:$PATH`
+`export LD_LIBRARY_PATH=/usr/local/cuda-11.4.4/lib64:$LD_LIBRARY_PATH`
 
 2. Navigate to the athenak folder and run the following for v100
 
