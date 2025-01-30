@@ -47,7 +47,7 @@ Since AthenaK is very similar to Athena++, the [Athena++ documention](https://gi
 
 2. Navigate to the athenak folder and run the following for v100
 
-`cmake3 -D Kokkos_ENABLE_CUDA=On -D Kokkos_ARCH_VOLTA70=On -D CMAKE_CXX_COMPILER=~/Codes/athenak/kokkos/bin/nvcc_wrapper -B {Build_Folder}`
+`cmake3 -D Kokkos_ENABLE_CUDA=On -D Kokkos_ARCH_AMPERE80=On -D CMAKE_CXX_COMPILER=~/Codes/athenak/kokkos/bin/nvcc_wrapper -D CMAKE_BUILD_TYPE=Debug -B {Build Folder}`
 
 3. Navigate to the Build_Folder and run the following make command
 
@@ -55,7 +55,7 @@ Since AthenaK is very similar to Athena++, the [Athena++ documention](https://gi
 
 4. run the following command for a particular problem
 
-`srun ./athena -i ~/Codes/athenak/inputs/mhd/orszag_tang.athinput -d ../orsag_tang/`
+`srun src/athena -i ~/Codes/athenak/inputs/mhd/orszag_tang.athinput mesh/nx1=512 mesh/nx2=512 meshblock/nx1=64 meshblock/nx2=64 -d output/`
 
 
 
@@ -68,3 +68,25 @@ For more details on the features and algorithms implemented in AthenaK, see the 
 
 Please reference these papers as appropriate for any publications that use AthenaK.
 # athenak_updates
+
+```#Rusty Job Script 
+#!/bin/bash -l
+#SBATCH --partition gpu
+##SBATCH --constraint v100,ib
+#SBATCH --gpus-per-node=1
+#SBATCH -C a100
+
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --gpus-per-task=1
+#SBATCH --mem=200G
+
+#SBATCH --mail-user=dp3327@columbia.edu
+#SBATCH --job-name=test_athenak
+#SBATCH --mail-type=ALL
+#SBATCH --time=00-00:05:00
+#SBATCH -o outfile # STDOUT 
+#SBATCH -e errorfile # STDERR
+
+
+srun src/athena -i ~/Codes/athenak/inputs/mhd/orszag_tang.athinput mesh/nx1=512 mesh/nx2=512 meshblock/nx1=64 meshblock/nx2=64 -d output/
