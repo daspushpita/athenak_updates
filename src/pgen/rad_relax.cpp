@@ -47,16 +47,18 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
   Real temp = pin->GetReal("problem", "temp");
   Real v1 = pin->GetOrAddReal("problem", "v1", 0.0);
   Real lf = 1.0/sqrt(1.0-(SQR(v1)));
+  // set EOS data
+  Real gm1 = pmbp->phydro->peos->eos_data.gamma - 1.0;
 
   // set primitive variables
   auto &w0 = pmbp->phydro->w0;
-  par_for("pgen_shadow1",DevExeSpace(),0,nmb1,0,(n3-1),0,(n2-1),0,(n1-1),
+  par_for("rad_relax1",DevExeSpace(),0,nmb1,0,(n3-1),0,(n2-1),0,(n1-1),
   KOKKOS_LAMBDA(int m, int k, int j, int i) {
     w0(m,IDN,k,j,i) = 1.0;
-    w0(m,IVX,k,j,i) = lf*v1;
+    w0(m,IVX,k,j,i) = v1;
     w0(m,IVY,k,j,i) = 0.0;
     w0(m,IVZ,k,j,i) = 0.0;
-    w0(m,IEN,k,j,i) = temp;  // assumes that gm1=1
+    w0(m,IEN,k,j,i) = temp/gm1;  // assumes that gm1=1
   });
 
   // Convert primitives to conserved
@@ -69,8 +71,9 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
   auto &tetcov_c_ = pmbp->prad->tetcov_c;
 
   auto &i0 = pmbp->prad->i0;
-  par_for("rad_relax",DevExeSpace(),0,nmb1,0,(n3-1),0,(n2-1),0,(n1-1),
+  par_for("rad_relax2",DevExeSpace(),0,nmb1,0,(n3-1),0,(n2-1),0,(n1-1),
   KOKKOS_LAMBDA(int m, int k, int j, int i) {
+    
     // Compute fluid velocity in tetrad frame
     Real uu1 = w0(m,IVX,k,j,i);
     Real uu2 = w0(m,IVY,k,j,i);
@@ -107,7 +110,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
       // Calculate intensity in tetrad frame
       Real n0 = tet_c_(m,0,0,k,j,i); Real n_0 = 0.0;
       for (int d=0; d<4; ++d) {  n_0 += tetcov_c_(m,d,0,k,j,i)*nh_c_.d_view(n,d);  }
-      i0(m,n,k,j,i) = n0*n_0*ii_f/SQR(SQR(n0_f));
+      i0(m,n,k,j,i) = n0*n_0*ii_f;///SQR(SQR(n0_f));
     }
   });
 
