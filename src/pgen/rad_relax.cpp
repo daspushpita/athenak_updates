@@ -104,13 +104,15 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
       Real n3_f = (-u_tet_[3]*nh_c_.d_view(n,0) + u_tet_[3]/(u_tet_[0] + 1.0)*un_t +
                    nh_c_.d_view(n,3));
 
-      // Calculate intensity in fluid frame
-      Real ii_f =  erad/(4.0*M_PI);
+      // Calculate intensity in coordinate frame
+      Real ii_coord =  erad/(4.0*M_PI);
+      //Real ii_f =  erad/(4.0*M_PI);
 
       // Calculate intensity in tetrad frame
       Real n0 = tet_c_(m,0,0,k,j,i); Real n_0 = 0.0;
       for (int d=0; d<4; ++d) {  n_0 += tetcov_c_(m,d,0,k,j,i)*nh_c_.d_view(n,d);  }
-      i0(m,n,k,j,i) = n0*n_0*ii_f;///SQR(SQR(n0_f));
+      i0(m,n,k,j,i) = n0*n_0*ii_coord;
+      // i0(m,n,k,j,i) = n0*n_0*ii_f/SQR(SQR(n0_f));
     }
   });
 
