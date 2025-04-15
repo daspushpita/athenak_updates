@@ -3,8 +3,8 @@
 // Copyright(C) 2020 James M. Stone <jmstone@ias.edu> and the Athena code team
 // Licensed under the 3-clause BSD License (the "LICENSE")
 //========================================================================================
-//! \file gr_alfven_wave.cpp
-// ! \brief Testing Linear Alfven wave problem generator for 1D/2D/3D problems
+//! \file gr_alfven_wave_rad.cpp
+// ! \brief Testing Linear Alfven wave problem generator for 1D/2D/3D problems with Radiation
 // ! Driver::Finalize().
 
 // C/C++ headers
@@ -76,7 +76,6 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
               << std::endl;
     exit(EXIT_FAILURE);
   }
-
   // read global parameters
   Real amp = pin->GetReal("problem", "amp");
   Real vx = pin->GetOrAddReal("problem", "vx", 0.0);
@@ -93,6 +92,8 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
   bool along_x1 = pin->GetOrAddBoolean("problem", "along_x1", true);
   bool along_x2 = pin->GetOrAddBoolean("problem", "along_x2", false);
   bool along_x3 = pin->GetOrAddBoolean("problem", "along_x3", false);
+
+  Real Erad = pin->GetOrAddReal("problem", "Erad", 1.0);
 
   // conditions of periodicity and exactly one wavelength along each grid direction
   Real x1size = pmy_mesh_->mesh_size.x1max - pmy_mesh_->mesh_size.x1min;
@@ -219,8 +220,6 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
   lwv.dby = amp * delta_b[2];
   lwv.dbz = amp * delta_b[3];
 
-  std::cout << "delta_u[2] = " << delta_u[2] << std::endl;
-  
   if (set_initial_conditions) {
     Real tlim = pin->GetReal("time", "tlim");
     pin->SetReal("time", "tlim", tlim*(std::abs(lambda/lambda_a)));
@@ -264,7 +263,6 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
     w0_(m,IVY,k,j,i) = u_mink[2];
     w0_(m,IVZ,k,j,i) = u_mink[3];
   });
-
     //Adding new
   par_for("pgen_fluid2",DevExeSpace(), 0,nmb-1,ks,ke,js,je,is,ie,
   KOKKOS_LAMBDA(int m, int k, int j, int i) {
@@ -325,9 +323,43 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
   // pmbp->pmhd->peos->PrimToCons(w0_, bcc_, u0_, is, ie, js, je, ks, ke);
   pmbp->pmhd->peos->PrimToCons(w0_, bcc_, u1, is, ie, js, je, ks, ke);
   // End initialization MHD variables
+  
+  //Initialize the radiation variables
+  auto &nh_c_ = pmbp->prad->nh_c;
+  auto &tet_c_ = pmbp->prad->tet_c;
+  auto &tetcov_c_ = pmbp->prad->tetcov_c;
+  int nang1 = (pmbp->prad->prgeo->nangles-1);
+
+  auto &i0 = pmbp->prad->i0;
+  par_for("rad_wave",DevExeSpace(),0,nmb-1,0,(n3-1),0,(n2-1),0,(n1-1),
+  KOKKOS_LAMBDA(int m, int k, int j, int i) {
+    
+    // Compute fluid velocity in tetrad frame
+    Real uu1 = w0_(m,IVX,k,j,i);
+    Real uu2 = w0_(m,IVY,k,j,i);
+    Real uu3 = w0_(m,IVZ,k,j,i);
+    Real uu0 = sqrt(1.0 + SQR(uu1) + SQR(uu2) + SQR(uu3));
+
+    // Go through each angle
+    for (int n=0; n<=nang1; ++n) {
+
+      // Calculate intensity in coordinate frame
+      Real ii_coord =  Erad/(4.0*M_PI); //This should be the intensity in the tetad frame. This expression works for me 
+                                        // because I am in Minkowski Frame. 
+      // Real ii_f =  erad/(4.0*M_PI);
+
+      // Calculate intensity in tetrad frame
+      Real n0 = tet_c_(m,0,0,k,j,i); Real n_0 = 0.0;
+      for (int d=0; d<4; ++d) {  n_0 += tetcov_c_(m,d,0,k,j,i)*nh_c_.d_view(n,d);  }
+      i0(m,n,k,j,i) = n0*n_0*ii_coord;  //This should be the intensity in the tetad frame. This expression works for me 
+                                        // because I am in Minkowski Frame. 
+      // i0(m,n,k,j,i) = n0*n_0*ii_f/SQR(SQR(n0_f));    //Correct expression in the tetrad frame for ii_f = fluid frame intensity
+    }
+  });
+
   return;
 }
-
+//----------------------------------------------------------------------------------------
 void LinearWaveErrors_alfven(ParameterInput *pin, Mesh *pm) {
   // calculate reference solution by calling pgen again.  Solution stored in second
   // register u1/b1 when flag is false.
@@ -486,4 +518,5 @@ void LinearWaveErrors_alfven(ParameterInput *pin, Mesh *pm) {
 }
 
 //----------------------------------------------------------------------------------------
+
 
