@@ -93,7 +93,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
   bool along_x1 = pin->GetOrAddBoolean("problem", "along_x1", true);
   bool along_x2 = pin->GetOrAddBoolean("problem", "along_x2", false);
   bool along_x3 = pin->GetOrAddBoolean("problem", "along_x3", false);
-
+  int wave_flag = pin->GetOrAddInteger("problem", "wave_flag", 1);
   // conditions of periodicity and exactly one wavelength along each grid direction
   Real x1size = pmy_mesh_->mesh_size.x1max - pmy_mesh_->mesh_size.x1min;
 
@@ -101,10 +101,8 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
   LinWaveVariablesALfven lwv;
 
   // choose the smallest projection of the wavelength in each direction that is > 0
-  Real lambda = x1size;
-  // Extract primitive arrays
-  auto &w0_ = pmbp->pmhd->w0;
-
+  Real wavelength = x1size;
+  Real lambda; 
   // capture variables for kernel
   auto &indcs = pmy_mesh_->mb_indcs;
   int &is = indcs.is; int &ie = indcs.ie;
@@ -119,7 +117,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
   int n3 = (indcs.nx3 > 1)? (indcs.nx3 + 2*indcs.ng) : 1;
 
   // Initialize k_parallel
-  lwv.k_par = 2.0*(M_PI)/lambda;
+  lwv.k_par = 2.0*(M_PI)/wavelength;
 
   // initialize MHD variables ------------------------------------------------------------
 
@@ -144,7 +142,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
   Real u4[4], b4[4], delta_u[4], delta_b[4];
 
   v_sq = SQR(lwv.v1_0) + SQR(lwv.v2_0) + SQR(lwv.v3_0);
-  W= 1./std::sqrt(1. - (v_sq));           //Should work only for Minkowski
+  W= 1./std::sqrt(1. - v_sq);           //Should work only for Minkowski
   rhoh = lwv.rho + eos.gamma * lwv.p0/gm1;
 
   u4[0] = W;
@@ -160,23 +158,48 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
 
   Real b_sq = -SQR(b4[0]) + SQR(b4[1]) + SQR(b4[2]) + SQR(b4[3]);
   Real h_tot = rhoh + b_sq;   //Static fluid, b^i = B^i 
-  Real lambda_a = (b4[1] + std::sqrt(h_tot) * u4[1]) / (b4[0] + W * std::sqrt(h_tot));
+
+  Real lambda_ap = (b4[1] + std::sqrt(h_tot) * u4[1]) / (b4[0] + W * std::sqrt(h_tot));            // (A 38)
+  Real lambda_am = (b4[1] - std::sqrt(h_tot) * u4[1]) / (b4[0] - W * std::sqrt(h_tot));            // (A 38)
+  
+  Real sign = 1.0;
+  
+  if (lambda_ap > lambda_am) {  // \lambda_{a,\pm} = \lambda_a^\pm
+    if (wave_flag == 1) {  // leftgoing
+      sign = -1.0;
+    }
+  } else {  // lambda_{a,\pm} = \lambda_a^\mp
+    if (wave_flag == 5) {  // rightgoing
+    sign = -1.0;
+    }
+  }
+  if (sign > 0) {  // want \lambda_{a,+}
+    lambda = lambda_ap;
+  } else {  // want \lambda_{a,-} instead
+    lambda = lambda_am;
+  }
+
+  // Real lambda_a = (b4[1] + std::sqrt(h_tot) * u4[1]) / (b4[0] + W * std::sqrt(h_tot));
 
   //Auxilliary variables
   Real alpha1_mu[4], alpha2_mu[4], g_1, g_2, f_1, f_2;
 
-  alpha1_mu[0] = W * u4[3];
-  alpha1_mu[1] = W * lambda_a * u4[3];
+  alpha1_mu[0] = u4[3];
+  alpha1_mu[1] = lambda * u4[3];
   alpha1_mu[2] = 0.0;
-  alpha1_mu[3] = W * (1 - lambda_a * u4[1]);
+  alpha1_mu[3] = u4[0] - lambda * u4[1];
 
-  alpha2_mu[0] = - W * u4[2];
-  alpha2_mu[1] = - W * lambda_a * u4[2];
-  alpha2_mu[2] = - W * (1 - lambda_a * u4[1]);
+  alpha2_mu[0] = -u4[2];
+  alpha2_mu[1] = -lambda * u4[2];
+  alpha2_mu[2] = lambda * u4[1] - u4[0];
   alpha2_mu[3] = 0.0;
 
-  g_1 = (1./ W) * (b4[2] + (lambda_a * u4[2] / (1 - lambda_a * u4[1])) * b4[1]);
-  g_2 = (1./ W) * (b4[3] + (lambda_a * u4[3] / (1 - lambda_a * u4[1])) * b4[1]);
+  g_1 = (1./ W) * (b4[2] + (lambda * u4[2] / (1 - lambda * u4[1])) * b4[1]);
+  g_2 = (1./ W) * (b4[3] + (lambda * u4[3] / (1 - lambda * u4[1])) * b4[1]);
+
+  // Safe threshold check for near-zero g_1, g_2
+  constexpr Real eps = std::numeric_limits<Real>::epsilon();
+  constexpr Real tol = 100 * eps;  // Adjust the multiplier if needed
 
   // if (g_1 == 0.0 && g_2 == 0.0) {
   //   f_1 = f_2 = 1./std::sqrt(2.0);  // (A 67)
@@ -185,7 +208,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
   //   f_2 = g_2 / std::sqrt(SQR(g_1) + SQR(g_2));  // (A 66)
   // }
 
-  if (std::abs(g_1) < 1e-14 && std::abs(g_2) < 1e-14) {
+  if (std::abs(g_1) < tol && std::abs(g_2) < tol) {
     f_1 = f_2 = 1./std::sqrt(2.0);  // (A 67)
   } else {
     f_1 = g_1 / std::sqrt(SQR(g_1) + SQR(g_2));
@@ -223,9 +246,11 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
   
   if (set_initial_conditions) {
     Real tlim = pin->GetReal("time", "tlim");
-    pin->SetReal("time", "tlim", tlim*(std::abs(lambda/lambda_a)));
+    pin->SetReal("time", "tlim", tlim*(std::abs(wavelength/lambda)));
   }
-
+  // Extract primitive arrays
+  auto &w0 = pmbp->pmhd->w0;
+  //Conserved and magnetic fields
   auto &b1 = (set_initial_conditions)? pmbp->pmhd->b0 : pmbp->pmhd->b1;
   auto &u1 = (set_initial_conditions)? pmbp->pmhd->u0 : pmbp->pmhd->u1;
 
@@ -235,34 +260,53 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
     Real &x1min = size.d_view(m).x1min;
     Real &x1max = size.d_view(m).x1max;
     Real x1v = CellCenterX(i-is, indcs.nx1, x1min, x1max);
-    Real x1f   = LeftEdgeX(i  -is, indcs.nx1, x1min, x1max);
-    Real x1fp1   = LeftEdgeX(i+1  -is, indcs.nx1, x1min, x1max);
 
     Real local_amp = amp * std::sin(lwv.k_par * x1v);
+    //Adding New
+    Real rho_local = rho;
+    Real pgas_local = lwv.p0;
 
-    Real u_mink[4], b_mink[4];
+    Real u_mink[4];
+    Real b_mink[4] = {0.0};
 
     for (int mu = 0; mu < 4; ++mu) {
       u_mink[mu] = u4[mu] + local_amp * delta_u[mu];
       b_mink[mu] = b4[mu] + local_amp * delta_b[mu];
     }
+     
+    //New
 
-    // // compute cell-centered conserved variables
-    // u1(m,IDN,k,j,i)=lwv.d0 + amp*sn*eigen_vec[6];
-    // u1(m,IM1,k,j,i)=mx*lwv.cos_a2*lwv.cos_a3 -my*lwv.sin_a3 -mz*lwv.sin_a2*lwv.cos_a3;
-    // u1(m,IM2,k,j,i)=mx*lwv.cos_a2*lwv.sin_a3 +my*lwv.cos_a3 -mz*lwv.sin_a2*lwv.sin_a3;
-    // u1(m,IM3,k,j,i)=mx*lwv.sin_a2                           +mz*lwv.cos_a2;
+    Real u_local[4], b_local[4], u_local_low[4], b_local_low[4];
+    for (int mu = 0; mu < 4; ++mu) {
+      u_local[mu] = u_mink[mu];
+      b_local[mu] = b_mink[mu];
+      u_local_low[mu] = (mu == 0 ? -1.0 : 1.0) * u_local[mu];
+      b_local_low[mu] = (mu == 0 ? -1.0 : 1.0) * b_local[mu];
+    }
 
-    // u1(m,IEN,k,j,i) = p0/gm1 + 0.5*lwv.d0*SQR(lwv.v1_0) + 0.5*(SQR(lwv.b1_0) + SQR(lwv.b2_0) + SQR(lwv.b3_0));
+    // Calculate useful local scalars
+    Real b_sq_local = 0.0;
+    for (int mu = 0; mu < 4; ++mu) {
+      b_sq_local += b_local[mu] * b_local_low[mu];
+    }
+    Real wtot_local = rho_local + (eos.gamma/gm1) * pgas_local + b_sq_local;
+    Real ptot_local = pgas_local + 0.5*b_sq_local;
 
     // compute cell-centered primitive variables
 
-    w0_(m,IDN,k,j,i) = lwv.rho;
-    w0_(m,IEN,k,j,i) = lwv.p0/gm1;
+    w0(m,IDN,k,j,i) = rho_local;
+    w0(m,IEN,k,j,i) = pgas_local/gm1;
+    w0(m,IVX,k,j,i) = u_local[1] / u_local[0]; 
+    w0(m,IVY,k,j,i) = u_local[2] / u_local[0]; 
+    w0(m,IVZ,k,j,i) = u_local[3] / u_local[0]; 
 
-    w0_(m,IVX,k,j,i) = u_mink[1];
-    w0_(m,IVY,k,j,i) = u_mink[2];
-    w0_(m,IVZ,k,j,i) = u_mink[3];
+    // // compute cell-centered conserved variables
+    // u1(m,IDN,k,j,i) = u_local[0] * rho_local;
+    // u1(m,IM1,k,j,i) = wtot_local*u_local[0]*u_local[1] - b_local[0]*b_local[1];
+    // u1(m,IM2,k,j,i) = wtot_local*u_local[0]*u_local[2] - b_local[0]*b_local[2];
+    // u1(m,IM3,k,j,i) = wtot_local*u_local[0]*u_local[3] - b_local[0]*b_local[3];
+    // u1(m,IEN,k,j,i) = wtot_local*u_local[0]*u_local[0] - b_local[0]*b_local[0]
+    //                   + ptot_local;
   });
 
     //Adding new
@@ -291,14 +335,14 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
       u_minkp[mu] = u4[mu] + local_ampp * delta_u[mu];
       b_minkp[mu] = b4[mu] + local_ampp * delta_b[mu];
     }
-    b1.x1f(m,k,j,i) = b_minkf[1] * u_minkf[0] - b_minkf[0] * u_minkf[1];
+    b1.x1f(m,k,j,i) = b_mink[1] * u_mink[0] - b_mink[0] * u_mink[1];
     b1.x2f(m,k,j,i) = b_mink[2] * u_mink[0] - b_mink[0] * u_mink[2];
     b1.x3f(m,k,j,i) = b_mink[3] * u_mink[0] - b_mink[0] * u_mink[3];
 
     // }
     // // Include extra face-component at edge of block in each direction
     if (i==ie) {
-      b1.x1f(m,k,j,i+1) = b_minkp[1] * u_minkp[0] - b_minkp[0] * u_minkp[1];
+      b1.x1f(m,k,j,i+1) = b_mink[1] * u_mink[0] - b_mink[0] * u_mink[1];
 
     }
     if (j==je) {
@@ -310,7 +354,6 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
 
     }
     });
-  // End initialization MHD variables
   // Compute cell-centered fields
   auto &bcc_ = pmbp->pmhd->bcc0;
   par_for("pgen_b0_cc", DevExeSpace(), 0,nmb-1,ks,ke,js,je,is,ie,
@@ -323,7 +366,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
   // Convert primitives to conserved
   // auto &u0_ = pmbp->pmhd->u0;
   // pmbp->pmhd->peos->PrimToCons(w0_, bcc_, u0_, is, ie, js, je, ks, ke);
-  pmbp->pmhd->peos->PrimToCons(w0_, bcc_, u1, is, ie, js, je, ks, ke);
+  pmbp->pmhd->peos->PrimToCons(w0, bcc_, u1, 0, (n1-1), 0, (n2-1), 0, (n3-1));
   // End initialization MHD variables
   return;
 }
